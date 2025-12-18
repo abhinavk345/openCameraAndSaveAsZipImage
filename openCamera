@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Webcam Capture Gallery with Select and ZIP Download</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        video {
+            max-width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        .btn {
+            margin-top: 10px;
+        }
+        .section-title {
+            margin-top: 30px;
+        }
+        .captured-img-container {
+            position: relative;
+            margin-bottom: 10px;
+        }
+        .captured-img {
+            width: 100%;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        .img-checkbox {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            transform: scale(1.5);
+            z-index: 10;
+        }
+        .pagination {
+            justify-content: center;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <h1 class="text-center mb-4">Webcam Capture Gallery</h1>
+
+        <div class="row justify-content-center">
+            <div class="col-md-12 text-center">
+                <!-- Video preview -->
+                <div class="card p-3 mb-3 bg-white">
+                    <h5 class="card-title section-title">Live Camera</h5>
+                    <video id="video" width="640" height="480" autoplay class="img-fluid"></video>
+                    <div class="d-flex justify-content-center flex-wrap gap-2">
+                        <button id="captureBtn" class="btn btn-primary btn-lg">Capture Image</button>
+                        <button id="switchCameraBtn" class="btn btn-warning btn-lg">Switch Camera</button>
+                        <button id="downloadSelectedBtn" class="btn btn-success btn-lg">Download Selected as ZIP</button>
+                    </div>
+                </div>
+
+                <!-- Captured images gallery -->
+                <div class="card p-3 bg-white">
+                    <h5 class="card-title section-title">Captured Images</h5>
+                    <div id="gallery" class="row g-2"></div>
+                    <nav>
+                        <ul id="pagination" class="pagination mt-3"></ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JSZip Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        const video = document.getElementById('video');
+        const captureBtn = document.getElementById('captureBtn');
+        const switchCameraBtn = document.getElementById('switchCameraBtn');
+        const downloadSelectedBtn = document.getElementById('downloadSelectedBtn');
+        const gallery = document.getElementById('gallery');
+        const paginationEl = document.getElementById('pagination');
+
+        let capturedImages = [];
+        let stream = null;
+        let currentDeviceIndex = 0;
+        let videoDevices = [];
+        let currentPage = 1;
+        const imagesPerPage = 10;
+
+        // List video input devices
+        async function getVideoDevices() {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            videoDevices = devices.filter(device => device.kind === 'videoinput');
+        }
+
+        // Start camera
+        async function startCamera(deviceId = null) {
+            if (stream) stream.getTracks().forEach(track => track.stop());
+            const constraints = deviceId ? { video: { deviceId: { exact: deviceId } } } : { video: true };
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+                alert("Could not access the camera. Please check permissions.");
+            }
+        }
+
+        // Initialize
+        async function init() {
+            await getVideoDevices();
+            if (videoDevices.length === 0) {
+                alert("No camera found!");
+                return;
+            }
+            currentDeviceIndex = 0;
+            startCamera(videoDevices[currentDeviceIndex].deviceId);
+        }
+
+        // Render gallery with pagination
+        function renderGallery(page = 1) {
+            gallery.innerHTML = '';
+            const start = (page - 1) * imagesPerPage;
+            const end = Math.min(start + imagesPerPage, capturedImages.length);
+            for (let i = start; i < end; i++) {
+                const col = document.createElement('div');
+                col.className = 'col-1 captured-img-container';
+
+                const img = document.createElement('img');
+                img.src = capturedImages[i].dataURL;
+                img.className = 'captured-img img-fluid';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'img-checkbox';
+                checkbox.checked = capturedImages[i].selected;
+                checkbox.addEventListener('change', () => {
+                    capturedImages[i].selected = checkbox.checked;
+                });
+
+                col.appendChild(img);
+                col.appendChild(checkbox);
+                gallery.appendChild(col);
+            }
+            renderPagination();
+        }
+
+        // Render pagination
+        function renderPagination() {
+            paginationEl.innerHTML = '';
+            const totalPages = Math.ceil(capturedImages.length / imagesPerPage);
+            if (totalPages <= 1) return;
+
+            for (let i = 1; i <= totalPages; i++) {
+                const li = document.createElement('li');
+                li.className = `page-item ${i === currentPage ? 'active' : ''}`;
+                const a = document.createElement('a');
+                a.className = 'page-link';
+                a.href = '#';
+                a.innerText = i;
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    currentPage = i;
+                    renderGallery(currentPage);
+                });
+                li.appendChild(a);
+                paginationEl.appendChild(li);
+            }
+        }
+
+        // Capture image
+        captureBtn.addEventListener('click', () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            capturedImages.push({ dataURL: canvas.toDataURL('image/png'), selected: true });
+            currentPage = Math.ceil(capturedImages.length / imagesPerPage);
+            renderGallery(currentPage);
+        });
+
+        // Switch camera
+        switchCameraBtn.addEventListener('click', () => {
+            if (videoDevices.length <= 1) return;
+            currentDeviceIndex = (currentDeviceIndex + 1) % videoDevices.length;
+            startCamera(videoDevices[currentDeviceIndex].deviceId);
+        });
+
+        // Download selected images as ZIP
+        downloadSelectedBtn.addEventListener('click', async () => {
+            const selectedImages = capturedImages.filter(img => img.selected);
+            if (selectedImages.length === 0) {
+                alert("Select images to download!");
+                return;
+            }
+
+            const zip = new JSZip();
+            selectedImages.forEach((img, index) => {
+                const base64Data = img.dataURL.replace(/^data:image\/png;base64,/, '');
+                zip.file(`image_${index + 1}.png`, base64Data, { base64: true });
+            });
+
+            const content = await zip.generateAsync({ type: 'blob' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(content);
+            a.download = 'selected_images.zip';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+
+        init();
+    </script>
+</body>
+</html>
