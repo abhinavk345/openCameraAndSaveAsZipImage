@@ -25,7 +25,7 @@
             <!-- Video -->
             <div class="card p-3 mb-3 bg-white">
                 <h5 class="card-title">Live Camera / Video</h5>
-                <video id="video" width="640" height="480" autoplay></video>
+                <video id="video" width="640" height="480" autoplay muted></video>
                 <div class="d-flex justify-content-center flex-wrap gap-2 mt-2">
                     <button id="captureBtn" class="btn btn-primary btn-lg">Capture Image</button>
                     <button id="switchCameraBtn" class="btn btn-warning btn-lg">Switch Camera</button>
@@ -79,10 +79,18 @@
     const imagesPerPage = 10;
     let autoCaptureInterval = null;
 
-    // Load Face API models
-    Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/')
-    ]).then(() => console.log("Face API loaded"));
+    let faceDetectionEnabled = false; // Optional, toggle if models are available
+
+    // Optional: Load Face API models (if you want detection)
+    async function loadFaceAPIModels() {
+        try {
+            await faceapi.nets.tinyFaceDetector.loadFromUri('/models'); // Change path if needed
+            faceDetectionEnabled = true;
+            console.log("Face API models loaded!");
+        } catch (err) {
+            console.warn("Face API models not loaded, skipping face detection.");
+        }
+    }
 
     // Get devices
     async function getVideoDevices() {
@@ -93,17 +101,23 @@
     async function startCamera(deviceId=null) {
         if (stream) stream.getTracks().forEach(t => t.stop());
         const constraints = deviceId ? { video: { deviceId: { exact: deviceId } } } : { video: true };
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = stream;
+        } catch(err) {
+            alert("Could not access camera. Check permissions.");
+            console.error(err);
+        }
     }
 
     async function init() {
         await getVideoDevices();
         currentDeviceIndex = 0;
         startCamera(videoDevices[currentDeviceIndex]?.deviceId);
+        loadFaceAPIModels(); // Optional
     }
 
-    // Capture image with optional face filter
+    // Capture image with optional face detection
     captureBtn.addEventListener('click', async () => {
         const canvas = document.createElement('canvas');
         canvas.width = video.videoWidth;
@@ -111,18 +125,19 @@
         const ctx = canvas.getContext('2d');
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        // Face Detection
-        const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
-        ctx.strokeStyle = 'red';
-        ctx.lineWidth = 3;
-        detections.forEach(d => ctx.strokeRect(d.box.x, d.box.y, d.box.width, d.box.height));
+        if(faceDetectionEnabled){
+            const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions());
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 3;
+            detections.forEach(d => ctx.strokeRect(d.box.x, d.box.y, d.box.width, d.box.height));
+        }
 
         capturedImages.push({ dataURL: canvas.toDataURL('image/png'), selected: true });
         currentPage = Math.ceil(capturedImages.length / imagesPerPage);
         renderGallery(currentPage);
     });
 
-    // Render gallery
+    // Render gallery with pagination
     function renderGallery(page=1){
         gallery.innerHTML = '';
         const start = (page-1)*imagesPerPage;
@@ -238,7 +253,7 @@
             autoCaptureInterval=null;
             toggleAutoCaptureBtn.innerText="Toggle Auto-Capture";
         } else {
-            autoCaptureInterval = setInterval(()=> captureBtn.click(), 5000);
+            autoCaptureInterval = setInterval(()=> captureBtn.click(), 5000); // 5 sec interval
             toggleAutoCaptureBtn.innerText="Stop Auto-Capture";
         }
     });
